@@ -28,14 +28,15 @@
   flex-direction: column;
   gap: 24px;
   width: 100%;
-  max-width: 1200px;
+  max-width: 640px;
+  align-items: stretch;
 }
 
 .media-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  align-items: center;
+  align-items: stretch;
 }
 
 .app-footer {

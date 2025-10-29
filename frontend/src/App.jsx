@@ -125,7 +125,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>🎙 Omni3 Demo</h1>
-        <p>基於 Qwen-Omni-Realtime 的實時音視頻對話</p>
+        <p>Real-time Audio & Video Conversation with Qwen-Omni-Realtime</p>
       </header>
 
       <main className="app-main">
@@ -153,7 +153,7 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <p>使用 Server-side VAD | 實時音視頻處理</p>
+        <p>Server-side VAD Enabled | Real-time Audio & Video Processing</p>
       </footer>
     </div>
   );

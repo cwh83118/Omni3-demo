@@ -1,14 +1,15 @@
 /**
  * 音頻播放 Hook
  * 使用 Web Audio API 播放實時音頻流
+ * 支持連續播放多個音頻片段而不重疊
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function useAudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioContextRef = useRef(null);
-  const audioQueueRef = useRef([]);
-  const isProcessingRef = useRef(false);
+  const nextStartTimeRef = useRef(0); // 追蹤下一個音頻片段應該開始的時間
+  const activeSources = useRef([]); // 追蹤活躍的音頻源
 
   // 初始化 AudioContext
   useEffect(() => {
@@ -23,58 +24,64 @@ export function useAudioPlayer() {
     };
   }, []);
 
-  // 播放音頻緩衝區
-  const playAudioBuffer = useCallback(async (audioBuffer) => {
+  // 播放音頻片段（使用時間軸安排連續播放）
+  const playAudio = useCallback(async (base64Data) => {
     if (!audioContextRef.current) return;
 
     try {
+      const audioBuffer = await base64ToPCM24AudioBuffer(
+        base64Data,
+        audioContextRef.current
+      );
+
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContextRef.current.destination);
-      source.start();
 
+      // 計算開始時間
+      const currentTime = audioContextRef.current.currentTime;
+
+      // 如果 nextStartTime 還沒初始化或已經過去，從現在開始
+      if (nextStartTimeRef.current < currentTime) {
+        nextStartTimeRef.current = currentTime;
+      }
+
+      // 安排在正確的時間播放
+      source.start(nextStartTimeRef.current);
+
+      // 更新下一個片段的開始時間（當前時間 + 這個片段的持續時間）
+      nextStartTimeRef.current += audioBuffer.duration;
+
+      // 追蹤音頻源
+      activeSources.current.push(source);
       setIsPlaying(true);
 
+      // 當播放結束時清理
       source.onended = () => {
-        setIsPlaying(false);
-        // 播放下一個
-        processQueue();
+        activeSources.current = activeSources.current.filter(s => s !== source);
+        if (activeSources.current.length === 0) {
+          setIsPlaying(false);
+        }
       };
+
     } catch (error) {
       console.error('播放音頻失敗:', error);
-      setIsPlaying(false);
     }
   }, []);
 
-  // 處理隊列
-  const processQueue = useCallback(async () => {
-    if (isProcessingRef.current || audioQueueRef.current.length === 0) {
-      return;
-    }
-
-    isProcessingRef.current = true;
-    const audioData = audioQueueRef.current.shift();
-
-    if (audioData) {
-      const audioBuffer = await base64ToPCM24AudioBuffer(
-        audioData,
-        audioContextRef.current
-      );
-      await playAudioBuffer(audioBuffer);
-    }
-
-    isProcessingRef.current = false;
-  }, [playAudioBuffer]);
-
-  // 添加音頻到播放隊列
-  const playAudio = useCallback((base64Data) => {
-    audioQueueRef.current.push(base64Data);
-    processQueue();
-  }, [processQueue]);
-
-  // 清空隊列
+  // 清空並停止所有播放
   const clearQueue = useCallback(() => {
-    audioQueueRef.current = [];
+    // 停止所有活躍的音頻源
+    activeSources.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {
+        // 忽略已經停止的源
+      }
+    });
+    activeSources.current = [];
+    nextStartTimeRef.current = 0;
+    setIsPlaying(false);
   }, []);
 
   return {

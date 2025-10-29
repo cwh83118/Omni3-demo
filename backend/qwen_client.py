@@ -102,23 +102,23 @@ class QwenRealtimeClient:
 
     async def send_image(self, image_data: str):
         """
-        發送圖片數據
+        發送視頻幀數據
 
         Args:
-            image_data: Base64 編碼的圖片數據
+            image_data: Base64 編碼的圖片數據（JPEG格式）
         """
         if not self.is_connected or not self.conversation:
-            logger.warning("未連接到 API，無法發送圖片")
+            logger.warning("未連接到 API，無法發送視頻幀")
             return
 
         try:
             await asyncio.to_thread(
-                self.conversation.append_image,
+                self.conversation.append_video,
                 image_data
             )
-            logger.debug("已發送圖片幀")
+            logger.debug("已發送視頻幀")
         except Exception as e:
-            logger.error(f"發送圖片失敗: {e}")
+            logger.error(f"發送視頻幀失敗: {e}")
 
     async def disconnect(self):
         """斷開連接"""
@@ -147,28 +147,33 @@ class QwenCallbackHandler(OmniRealtimeCallback):
         """處理事件"""
         try:
             event_type = response.get('type')
+            logger.info(f"收到事件: {event_type}")
 
             if event_type == 'response.audio.delta':
-                # 接收音頻流片段
+                # 接收音頻流片段（直接解碼並調用回調，參考官方示例）
                 audio_b64 = response.get('delta', '')
                 if audio_b64 and self.on_audio_data:
                     audio_bytes = base64.b64decode(audio_b64)
-                    asyncio.create_task(self.on_audio_data(audio_bytes))
+                    logger.info(f"收到音頻數據: {len(audio_bytes)} bytes")
+                    # 直接調用同步回調函數
+                    self.on_audio_data(audio_bytes)
 
             elif event_type == 'response.text.delta':
                 # 接收文本流片段
                 text_delta = response.get('delta', '')
                 if text_delta and self.on_text_data:
-                    asyncio.create_task(self.on_text_data(text_delta))
+                    logger.info(f"收到文本: {text_delta}")
+                    # 直接調用同步回調函數
+                    self.on_text_data(text_delta)
 
             elif event_type == 'conversation.item.input_audio_transcription.completed':
                 # 用戶語音轉錄完成
                 transcript = response.get('transcript', '')
-                logger.debug(f"用戶說: {transcript}")
+                logger.info(f"用戶說: {transcript}")
 
             elif event_type == 'response.done':
                 # 響應完成
-                logger.debug("API 響應完成")
+                logger.info("API 響應完成")
 
         except Exception as e:
             logger.error(f"處理事件失敗: {e}")

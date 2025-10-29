@@ -1,7 +1,6 @@
 .video-display {
   position: relative;
   width: 100%;
-  max-width: 640px;
   aspect-ratio: 4 / 3;
   background: #1a1a2e;
   border-radius: 12px;

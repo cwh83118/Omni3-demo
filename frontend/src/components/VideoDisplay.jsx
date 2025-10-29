@@ -18,7 +18,7 @@ export function VideoDisplay({ videoRef, isActive }) {
       {!isActive && (
         <div className="video-placeholder">
           <div className="placeholder-icon">📹</div>
-          <div>攝像頭未啟動</div>
+          <div>Camera Not Active</div>
         </div>
       )}
     </div>

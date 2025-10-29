@@ -1,6 +1,5 @@
 .audio-visualizer {
   width: 100%;
-  max-width: 640px;
   background: #1a1a2e;
   border-radius: 12px;
   overflow: hidden;

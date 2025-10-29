@@ -62,26 +62,37 @@ class ConnectionManager:
             await websocket.close()
             return
 
-        # 創建回調函數，將 Qwen API 的響應轉發到前端
-        async def on_audio_data(audio_delta: bytes):
-            """接收到音頻數據時，轉發到前端"""
+        # 獲取當前事件循環
+        loop = asyncio.get_event_loop()
+
+        # 創建同步回調函數（參考官方示例），將 Qwen API 的響應轉發到前端
+        def on_audio_data(audio_delta: bytes):
+            """接收到音頻數據時，轉發到前端（同步回調）"""
             try:
                 # 將音頻編碼為 base64
                 audio_b64 = base64.b64encode(audio_delta).decode('utf-8')
-                await websocket.send_json({
-                    "type": "audio_delta",
-                    "data": audio_b64
-                })
+                # 在主事件循環中執行 WebSocket 發送
+                asyncio.run_coroutine_threadsafe(
+                    websocket.send_json({
+                        "type": "audio_delta",
+                        "data": audio_b64
+                    }),
+                    loop
+                )
             except Exception as e:
                 logger.error(f"發送音頻失敗: {e}")
 
-        async def on_text_data(text_delta: str):
-            """接收到文本數據時，轉發到前端"""
+        def on_text_data(text_delta: str):
+            """接收到文本數據時，轉發到前端（同步回調）"""
             try:
-                await websocket.send_json({
-                    "type": "text_delta",
-                    "data": text_delta
-                })
+                # 在主事件循環中執行 WebSocket 發送
+                asyncio.run_coroutine_threadsafe(
+                    websocket.send_json({
+                        "type": "text_delta",
+                        "data": text_delta
+                    }),
+                    loop
+                )
             except Exception as e:
                 logger.error(f"發送文本失敗: {e}")
 
