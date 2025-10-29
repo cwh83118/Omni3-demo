@@ -1,11 +1,19 @@
 """
 Qwen-Omni-Realtime API 客戶端封裝
+基於官方文檔: https://help.aliyun.com/zh/model-studio/realtime
 """
 import asyncio
-import json
+import base64
 import logging
+import os
 from typing import Callable, Optional
-from dashscope.audio.qwen_omni import OmniRealtimeConversation, RealtimeCallback
+import dashscope
+from dashscope.audio.qwen_omni import (
+    OmniRealtimeConversation,
+    OmniRealtimeCallback,
+    MultiModality,
+    AudioFormat
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,7 +32,9 @@ class QwenRealtimeClient:
             on_audio_data: 音頻數據回調函數
             on_text_data: 文本數據回調函數
         """
-        self.api_key = api_key
+        # 設置 DashScope API Key
+        dashscope.api_key = api_key
+
         self.model = model
         self.on_audio_data = on_audio_data
         self.on_text_data = on_text_data
@@ -40,11 +50,11 @@ class QwenRealtimeClient:
                 on_text_data=self.on_text_data
             )
 
-            # 創建對話實例
+            # 創建對話實例（使用新加坡地域）
             self.conversation = OmniRealtimeConversation(
                 model=self.model,
-                api_key=self.api_key,
-                callback=callback
+                callback=callback,
+                url="wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
             )
 
             # 連接到 API
@@ -53,15 +63,13 @@ class QwenRealtimeClient:
             # 配置會話：啟用 server-side VAD
             await asyncio.to_thread(
                 self.conversation.update_session,
-                output_modalities=["text", "audio"],
-                voice="Cherry",  # 可選：Cherry, Bella, Ethan 等
-                turn_detection={
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "silence_duration_ms": 800
-                },
-                input_audio_format="pcm16",
-                output_audio_format="pcm24"
+                output_modalities=[MultiModality.AUDIO, MultiModality.TEXT],
+                voice='Cherry',
+                input_audio_format=AudioFormat.PCM_16000HZ_MONO_16BIT,
+                output_audio_format=AudioFormat.PCM_24000HZ_MONO_16BIT,
+                enable_input_audio_transcription=True,
+                enable_turn_detection=True,
+                turn_detection_type='server_vad'
             )
 
             self.is_connected = True
@@ -83,9 +91,11 @@ class QwenRealtimeClient:
             return
 
         try:
+            # 轉換為 base64
+            audio_b64 = base64.b64encode(audio_data).decode('ascii')
             await asyncio.to_thread(
-                self.conversation.send_audio,
-                audio_data
+                self.conversation.append_audio,
+                audio_b64
             )
         except Exception as e:
             logger.error(f"發送音頻失敗: {e}")
@@ -103,7 +113,7 @@ class QwenRealtimeClient:
 
         try:
             await asyncio.to_thread(
-                self.conversation.send_image,
+                self.conversation.append_image,
                 image_data
             )
             logger.debug("已發送圖片幀")
@@ -121,7 +131,7 @@ class QwenRealtimeClient:
                 logger.error(f"斷開連接失敗: {e}")
 
 
-class QwenCallbackHandler(RealtimeCallback):
+class QwenCallbackHandler(OmniRealtimeCallback):
     """Qwen API 回調處理器"""
 
     def __init__(self, on_audio_data: Callable, on_text_data: Callable):
@@ -129,20 +139,44 @@ class QwenCallbackHandler(RealtimeCallback):
         self.on_audio_data = on_audio_data
         self.on_text_data = on_text_data
 
-    def on_audio_delta(self, audio_delta: bytes):
-        """接收音頻流片段"""
-        if self.on_audio_data:
-            asyncio.create_task(self.on_audio_data(audio_delta))
+    def on_open(self) -> None:
+        """連接打開"""
+        logger.info("WebSocket 連接已建立")
 
-    def on_audio_transcript_delta(self, text_delta: str):
-        """接收文本轉錄流片段"""
-        if self.on_text_data:
-            asyncio.create_task(self.on_text_data(text_delta))
+    def on_event(self, response: dict) -> None:
+        """處理事件"""
+        try:
+            event_type = response.get('type')
 
-    def on_response_done(self):
-        """響應完成"""
-        logger.debug("API 響應完成")
+            if event_type == 'response.audio.delta':
+                # 接收音頻流片段
+                audio_b64 = response.get('delta', '')
+                if audio_b64 and self.on_audio_data:
+                    audio_bytes = base64.b64decode(audio_b64)
+                    asyncio.create_task(self.on_audio_data(audio_bytes))
 
-    def on_error(self, error: str):
+            elif event_type == 'response.text.delta':
+                # 接收文本流片段
+                text_delta = response.get('delta', '')
+                if text_delta and self.on_text_data:
+                    asyncio.create_task(self.on_text_data(text_delta))
+
+            elif event_type == 'conversation.item.input_audio_transcription.completed':
+                # 用戶語音轉錄完成
+                transcript = response.get('transcript', '')
+                logger.debug(f"用戶說: {transcript}")
+
+            elif event_type == 'response.done':
+                # 響應完成
+                logger.debug("API 響應完成")
+
+        except Exception as e:
+            logger.error(f"處理事件失敗: {e}")
+
+    def on_close(self, code: int, msg: str) -> None:
+        """連接關閉"""
+        logger.info(f"WebSocket 連接已關閉 (code={code}, msg={msg})")
+
+    def on_error(self, error: str) -> None:
         """錯誤處理"""
         logger.error(f"API 錯誤: {error}")
